@@ -7,9 +7,13 @@ published for assignment, component requires its menu items to be
 assigned if you need to install and test it.
 
 To do that; Add the items below with the entities they point at 
-administration backend of joomla:
+administration backend of joomla after installation:
 
 Profile:    User Profile
 Rides:      List Rides
 Trip:       Create Ride
 
+INSTALLATION:
+
+Just zip com_rideshare folder and upload to your joomla installation via
+Extension Manager.
