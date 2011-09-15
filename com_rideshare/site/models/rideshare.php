@@ -6,10 +6,59 @@ defined('_JEXEC') or die('Restricted access');
 jimport('joomla.application.component.modelitem');
 
 class rsTrip {
+    public $owner;
+    public $regno;
+    public $originID;
+    public $destinationID;
+    public $early;
+    public $late;
+    public $depart;
+    public $userv;
     
-    public function __construct($tripid = 0){
+    public function __construct($userid, $tripid = 0){
+        $db =& JFactory::getDBO();
         
+        $query='SELECT 
+        t.owner, 
+        t.regno, 
+        t.origin, 
+        t.destination, 
+        t.early, 
+        t.late, 
+        t.depart
+        FROM #__rsTrips AS t
+        WHERE t.tripID='.$tripid;
+        $query = $query.' UNION ALL
+        SELECT NULL, u.regno, u.seats, v.seats, NULL, NULL, NULL
+        FROM #__rsUserVehicles as u
+        LEFT JOIN #__rsVehicleTypes as v
+        ON v.ID=u.vtypeID
+        WHERE u.userID='.$userid;
+        
+        $db->setQuery( $query );
+        $rs = $db->loadRowList();
+        
+        $this->owner =          $rs[0][0];
+        $this->regno =          $rs[0][1];
+        $this->originID =       $rs[0][2];
+        $this->destinationID =  $rs[0][3];
+        $this->early =          $rs[0][4];
+        $this->late =           $rs[0][5];
+        $this->depart =         $rs[0][6];
+        
+        foreach ($rs as $uv) {
+            if ($uv[0] == NULL){
+                $vv = Array (   "regno"  => $uv[1], 
+                                "useats" => $uv[2], 
+                                "vseats" => $uv[3]);
+                $this->userv[] = $vv;
+                //var_dump($uv);
+                }
+            }
+        //var_dump($this->userv);
         }
+    }
+    
 
 class rsUser {
     
@@ -130,7 +179,6 @@ class rsVehicle {
         $db->query();
         return $db->getAffectedRows();
         }
-    
     public function __construct($rno){
         $this->regno = $rno;
         $db =& JFactory::getDBO();
@@ -645,14 +693,13 @@ class RideshareModelRideshare extends JModelItem {
         if(isset($_GET['trip'])){
             // check authorization to edit
             $edit = $_GET['trip'];
-            
         } else {
             // NEW: check if user has vehicle
             if (count($uvl) == 0) {
                 return 'You need to have a vehicle before create a trip.';
                 }
-            
             }
+        $rtr = new rsTrip($user->id, $edit);
         // check delete
         
         // edit & create
@@ -663,8 +710,8 @@ class RideshareModelRideshare extends JModelItem {
             $rv = $rv.'Edit';
             }
         $rv = $rv.' Trip</H1>';
-        // begin form:
-        $rv = $rv.'<table style="text-align: left; width: 100%;" border="1" ><tbody>';
+        // begin form here:
+        $rv = $rv.'<table style="text-align: left;" border="1" ><tbody>';
         $rv = $rv.'<tr><td>From<br></td><td>';
         $rv = $rv.$this->getLocationDD('fromL');
         $rv = $rv.'</td></tr><tr><td>To<br></td><td>';
@@ -674,10 +721,73 @@ class RideshareModelRideshare extends JModelItem {
         $rv = $rv.'</td></tr><tr><td>Arrive no later than<br></td><td>';
         $rv = $rv.JHTML::_( 'calendar',$finishdate,'dateLatest','dateL','%Y-%m-%d');
         $rv = $rv.'</td></tr><tr><td>Select Vehicle<br></td><td>';
-        $rv = $rv.'dropdown';
+        
+        // first car is selected if edit=0
+        $rv = $rv.'<script type="text/javascript">';
+        if ($edit == 0) {
+            $selectedvehicle = $rtr->userv[0]["regno"];
+        } else {
+            $selectedvehicle = $rtr->regno;
+            }
+        $rv = $rv.'mmseldiv = "seats'.$selectedvehicle.'";';
+        $rv = $rv.'</script>';
+        // vehicle selection
+        $rv = $rv.'<select name="sluv" ';
+        $rv = $rv.'onchange="javascript:ChangeDisplayDiv(mmseldiv, \'seats\' + this.value)">';
+        
+        foreach ($rtr->userv as $uv) {
+            $rv = $rv.'<option value="'.$uv["regno"].'"';
+            if ($uv["regno"] == $selectedvehicle){
+                $rv = $rv.' selected="yes"';
+                }
+            $rv = $rv.'>'.$uv["regno"].'</option>';
+            $curveh = Array ("regno" => $uv["regno"]);
+            if ($uv["useats"] == NULL) {
+                $curveh["seats"] = $uv["vseats"];
+            } else {
+                $curveh["seats"] = $uv["useats"];
+                }
+            $curveh["html"] = '<div id="seats'.$uv["regno"].'"';
+            if ($uv["regno"] == $selectedvehicle){
+                $curveh["html"] = $curveh["html"].' style="display: block;"';
+            } else {
+                $curveh["html"] = $curveh["html"].' style="display: none;"';
+                }
+            $curveh["html"] = $curveh["html"].'>';
+            $curveh["html"] = $curveh["html"].'<select name="seatsel';
+            $curveh["html"] = $curveh["html"].$uv["regno"].'">';
+            
+            for ($i = $curveh["seats"]; $i>0; $i--) {
+                $curveh["html"] = $curveh["html"].'<option value="'.$i.'">';
+                // select if selected
+                $curveh["html"] = $curveh["html"].$i.'</option>';
+                }
+            $curveh["html"] = $curveh["html"].'</select></div>';
+            $usrvehsel[] = $curveh;
+            }
+        $rv = $rv.'</select>';
         $rv = $rv.'<br></td></tr><tr><td>Passanger capacity<br></td><td>';
-        $rv = $rv.'dropdown';
-        $rv = $rv.'<br></td></tr><tr><td>delete-button<br></td><td>';
+        // capacity selection
+        foreach ($usrvehsel as $seatdiv) {
+            $rv = $rv.$seatdiv["html"];
+            }
+        $rv = $rv.'</td></tr><tr><td>Desired time of day to depart<br>';
+        $rv = $rv.'</td><td>';
+        // time to depart
+        $rv = $rv.'<select name="hoursel">';
+        for ($i = 1; $i < 13; $i++){
+            $rv = $rv.'<option value="'.$i.'">'.$i.'</option>';
+            }
+        $rv = $rv.'</select> : ';
+        $rv = $rv.'<select name="minutesel">';
+        for ($i = 0; $i < 60; $i++){
+            $rv = $rv.'<option value="'.$i.'">'.$i.'</option>';
+            }
+        $rv = $rv.'</select>   ';
+        $rv = $rv.'<input type="radio" name="ampm" value="am" />AM ';
+        $rv = $rv.'<input type="radio" name="ampm" value="pm" checked="checked"/>PM';
+        
+        $rv = $rv.'</td></tr><tr><td>delete-button-if-edit<br></td><td>';
         $rv = $rv.'done_button';
         $rv = $rv.'<br></td></tr>';
         $rv = $rv.'</tbody></table>';
