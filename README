@@ -1,0 +1,15 @@
+Rideshare component and template for joomla
+Koray Kalmaz.   September 2011
+
+Note:
+Although everything in this project are subject to change until it is 
+published for assignment, component requires its menu items to be 
+assigned if you need to install and test it.
+
+To do that; Add the items below with the entities they point at 
+administration backend of joomla:
+
+Profile:    User Profile
+Rides:      List Rides
+Trip:       Create Ride
+
