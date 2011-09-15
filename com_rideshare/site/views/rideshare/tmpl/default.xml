@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<metadata>
+    <layout title="COM_RIDESHARE_ENTRANCE">
+        <message>COM_RIDESHARE_ENTRANCE</message>
+    </layout>
+    <fields name="request">
+        <fieldset name="request">
+            <field
+                name="id"
+                type="list"
+                label="RideshareDataApp"
+                description="RideshareDataAppDesc"
+                default="1"
+            >
+                <option value="1">User Profile</option>
+                <option value="2">Vehicle</option>
+                <option value="3">Create Ride</option>
+                <option value="4">List Rides</option>
+            </field>
+        </fieldset>
+    </fields>
+</metadata>
