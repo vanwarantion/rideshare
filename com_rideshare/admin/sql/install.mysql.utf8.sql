@@ -330,6 +330,7 @@ CREATE TABLE `#__rsTrips` (
     `destination` INT NOT NULL, 
     `early` DATE NULL DEFAULT NULL,
     `late` DATE NULL DEFAULT NULL,
+    `capacity` INT NOT NULL, 
     `depart` TIME NULL DEFAULT '00:00:00',
     PRIMARY KEY ( `tripID` )
 ) ENGINE = MYISAM CHARACTER SET utf8 COLLATE utf8_general_ci;

@@ -5,7 +5,77 @@ defined('_JEXEC') or die('Restricted access');
 // import Joomla modelitem library
 jimport('joomla.application.component.modelitem');
 
+class rsTripList {
+    public $usertrips;
+    public $trips;
+    
+    public function __construct($userid, $from, $to, $early, $late){
+        // get User's trips, UNION with queried trips
+        $this->tripID = $tripid;
+        $db =& JFactory::getDBO();
+        
+        if ($from == NULL) {$from = 0;}
+        if ($to == NULL) {$to = 0;}
+        
+        $query='SELECT 
+        tripID AS id,  
+        regno, origin, destination, early, late, 
+        NULL AS capacity, 
+        NULL AS depart
+        FROM `#__rsTrips`
+        WHERE owner='.$userid;
+        
+        $query = $query.'
+        UNION ALL
+        SELECT 
+        tripID AS id,  
+        NULL AS regno, 
+        origin, destination, early, late, capacity, depart
+        FROM `#__rsTrips` ';
+        
+        $query = $query.'WHERE ';
+        $query = $query.'origin=\''.htmlentities($from).'\' ';
+        $query = $query.'AND ';
+        $query = $query.'destination=\''.htmlentities($to).'\' ';
+        
+        if ($early != NULL) {
+            $query = $query.'AND ';
+            $query = $query.'early > \''.htmlentities($early).'\' ';
+            }
+        
+        if ($late != NULL) {
+            $query = $query.'AND ';
+            $query = $query.'late < \''.htmlentities($late).'\' ';
+            }
+        
+        $db->setQuery($query);
+        $rs = $db->loadRowList();
+        
+        foreach ($rs as $retline) {
+            if (is_null($retline[1])) {
+                // results
+                $this->trips[] = Array ("id"            =>  $retline[0], 
+                                        "regno"         =>  $retline[1], 
+                                        "origin"        =>  $retline[2], 
+                                        "destination"   =>  $retline[3], 
+                                        "early"         =>  $retline[4], 
+                                        "late"          =>  $retline[5], 
+                                        "capacity"      =>  $retline[6], 
+                                        "depart"        =>  $retline[7]);
+            } else {
+                // user trips
+                $this->usertrips[] = Array ("id"            =>  $retline[0], 
+                                            "regno"         =>  $retline[1], 
+                                            "origin"        =>  $retline[2], 
+                                            "destination"   =>  $retline[3], 
+                                            "early"         =>  $retline[4], 
+                                            "late"          =>  $retline[5]);
+                }
+            }
+        }
+    }
 class rsTrip {
+    public $tripID;
     public $owner;
     public $regno;
     public $originID;
@@ -13,9 +83,11 @@ class rsTrip {
     public $early;
     public $late;
     public $depart;
+    public $capacity;
     public $userv;
     
     public function __construct($userid, $tripid = 0){
+        $this->tripID = $tripid;
         $db =& JFactory::getDBO();
         
         $query='SELECT 
@@ -25,7 +97,7 @@ class rsTrip {
         t.destination, 
         t.early, 
         t.late, 
-        t.depart
+        TIME_FORMAT( t.depart, "%h:%i %p" ) as depart
         FROM #__rsTrips AS t
         WHERE t.tripID='.$tripid;
         $query = $query.' UNION ALL
@@ -57,9 +129,45 @@ class rsTrip {
             }
         //var_dump($this->userv);
         }
+    public function updateTrip(){
+        $db =& JFactory::getDBO();
+        //var_dump($this->tripID);
+        if ($this->tripID == 0) {
+            // insert
+            $query =  'INSERT INTO `rideshare`.`#__rsTrips` (';
+            $query = $query.'`tripID`, ';
+            $query = $query.'`owner` , ';
+            $query = $query.'`regno`  , ';
+            $query = $query.'`origin`, ';
+            $query = $query.'`destination`, ';
+            $query = $query.'`early`, ';
+            $query = $query.'`late`, ';
+            $query = $query.'`capacity`, ';
+            $query = $query.'`depart` ';
+            $query = $query.') VALUES (';
+            $query = $query.'NULL, ';
+            $query = $query.$this->owner.', ';
+            $query = $query.'\''.$this->regno.'\', ';
+            $query = $query.$this->originID.', ';
+            $query = $query.$this->destinationID.', ';
+            $query = $query.'\''.$this->early.'\', ';
+            $query = $query.'\''.$this->late.'\', ';
+            $query = $query.$this->capacity.', ';
+            $query = $query.'TIME(STR_TO_DATE(\'';
+            $query = $query.$this->depart;
+            $query = $query.'\', \'%h:%i %p\')) );';
+        } else {
+            // abort if owner is not current user
+            // update
+            $query = '';
+            }
+        //var_dump($query);
+        $db->setQuery( $query );
+        $db->query();
+        
+        return $db->insertid();
+        }
     }
-    
-
 class rsUser {
     
     private $description;
@@ -123,7 +231,6 @@ class rsUser {
         return $db->getAffectedRows();
         }
     }
-
 class rsVehicle {
     protected $regno;
     public $make;
@@ -244,8 +351,6 @@ class rsVehicle {
         //var_dump($this->vTypes);
         }
     }
-    
-
 class rsLocations {
     public $locationList;   // [ID, name]
     public $map;
@@ -295,10 +400,8 @@ class rsLocations {
             }
         }
     }
-
 class RideshareModelRideshare extends JModelItem {
     protected $msg;
-    
     private function getEditDesc($oldText = ''){
         $rv = '<form method="post" action="'.htmlentities($_SERVER['PHP_SELF']).'"';
         $rv = $rv.' name="editDesc">';
@@ -626,12 +729,17 @@ class RideshareModelRideshare extends JModelItem {
         
         return $rv;
         }
-    
-    private function getLocationDD($ddname) {
-        $locs = new rsLocations();
+    private function getLocationDD($ddname, $locsel = 0, $locs = NULL) {
+        if (is_null($locs)) {
+            $locs = new rsLocations();
+            }
         $rv = '<select name="'.$ddname.'">';
         foreach (array_keys($locs->locationList) as $locKey) {
-            $rv = $rv.'<option value="'.$locKey.'">';
+            $rv = $rv.'<option value="'.$locKey.'"';
+            if ($locKey == $locsel) {
+                $rv = $rv.' selected="yes"';
+                }
+            $rv = $rv.'>';
             $rv = $rv.$locs->locationList[$locKey].'</option>';
             }
         $rv = $rv.'</select><br>';
@@ -644,6 +752,14 @@ class RideshareModelRideshare extends JModelItem {
         if ($user->id == 0) {
             return 'Please login or register to see this page.';
             }
+        // check previous post
+        if(isset($_POST['fromL'])){
+            $filtering = True;
+            //var_dump($_POST);
+        }
+        $results = new rsTripList($user->id, $_POST['fromL'], $_POST['toL'], $_POST['dateEarliest'], $_POST['dateLatest']);
+        
+        
         // call our class for RideShare related stuff:
         $rsp = new rsUser($user->id);
         // if has vehicle:
@@ -653,35 +769,72 @@ class RideshareModelRideshare extends JModelItem {
             $rv = $rv.'<a href="'.$adr.'">Click to add your trip here!</a><br><br>';
             }
         // begin filter form
-        $rv = $rv.'<div id="rideFilter"><table><tbody>';
+        $rv = $rv.'<div id="rideFilter">';
+        $rv = $rv.'<form method="post" action="'.htmlentities($_SERVER['PHP_SELF']);
+        $rv = $rv.'" name=ridefilter"><table><tbody>';
+
         $rv = $rv.'<tr><td>From City:<br></td>';
         $rv = $rv.'<td>To City:<br></td>';
         $rv = $rv.'<td>Depart no earlier than:<br></td>';
         $rv = $rv.'<td>Arrive no later than:<br></td>';
-        $rv = $rv.'<td colspan="1" rowspan="2" style="vertical-align: center;">Button<br></td>';
+        $rv = $rv.'<td colspan="1" rowspan="2" style="vertical-align: center;">';
+        $rv = $rv.'<input type="submit" name="filterdone" value="done"></td>';
         $rv = $rv.'</tr><tr>';
         // From
-        $rv = $rv.'<td>'.$this->getLocationDD('fromL').'</td>';
+        $llist = new rsLocations();
+        $rv = $rv.'<td>'.$this->getLocationDD('fromL', $_POST['fromL'], $llist).'</td>';
         // To
-        $rv = $rv.'<td>'.$this->getLocationDD('toL').'</td>';
+        $rv = $rv.'<td>'.$this->getLocationDD('toL', $_POST['toL'], $llist).'</td>';
         // Earliest
-        $rv = $rv.'<td>'.JHTML::_( 'calendar',$startdate,'dateEarliest','dateE','%Y-%m-%d').'</td>';
+        $rv = $rv.'<td>'.JHTML::_( 'calendar',$_POST['dateEarliest'],'dateEarliest','dateE','%Y-%m-%d').'</td>';
         // Latest
-        $rv = $rv.'<td>'.JHTML::_( 'calendar',$enddate,'dateLatest','dateL','%Y-%m-%d').'</td>';
+        $rv = $rv.'<td>'.JHTML::_( 'calendar',$_POST['dateLatest'],'dateLatest','dateL','%Y-%m-%d').'</td>';
         $rv = $rv.'</tr>';
         // end filter form
         $rv = $rv.'</tbody></table></div>';
         
+        //var_dump($results->trips);
+        $rv = $rv.'<br>';
+        if (count($results->usertrips) > 0) {
+            // "Your trips"
+            $rv = $rv.'<div id="UserRideListings"><table><tbody>';
+            $rv = $rv.'<tr><td colspan="5" rowspan="1"><h4>Your Trips</h4><br></td></tr>';
+            foreach ($results->usertrips as $ut) {
+                $rv = $rv.'<tr><td>'.$ut["regno"].'<br></td>';
+                $rv = $rv.'<td>'.$llist->locationList[$ut["origin"]].'<br></td>';
+                $rv = $rv.'<td>'.$llist->locationList[$ut["destination"]].'<br></td>';
+                $rv = $rv.'<td>'.$ut["early"].'<br></td>';
+                $rv = $rv.'<td>'.$ut["late"].'<br></td>';
+                $rv = $rv.'</tr>';
+                }
+            $rv = $rv.'</tbody></table></form></div>';
+            }
+        $rv = $rv.'<br>';
         // begin listings
-        $rv = $rv.'<div id="rideListings"><table><tbody>';
-        
-        $rv = $rv.'<br>Listings goes here<br>';
-        
+        if (count($results->trips) > 0) {
+            $rv = $rv.'<div id="rideListings"><table><tbody>';
+            $rv = $rv.'<tr><td colspan="5" rowspan="1"><h4>Search Results</h4><br></td></tr>';
+            $rv = $rv.'<tr><td><b>Origin</b><br></td>';
+            $rv = $rv.'<td><b>Destination</b><br></td>';
+            $rv = $rv.'<td><b>Earliest Depart</b><br></td>';
+            $rv = $rv.'<td><b>Latest Arrival</b><br></td>';
+            $rv = $rv.'<td><b>Capacity</b><br></td>';
+            $rv = $rv.'</tr>';
+            foreach ($results->trips as $ut) {
+                $rv = $rv.'<tr><td>'.$llist->locationList[$ut["origin"]].'<br></td>';
+                $rv = $rv.'<td>'.$llist->locationList[$ut["destination"]].'<br></td>';
+                $rv = $rv.'<td>'.$ut["early"].'<br></td>';
+                $rv = $rv.'<td>'.$ut["late"].'<br></td>';
+                $rv = $rv.'<td>'.$ut["capacity"].'<br></td>';
+                $rv = $rv.'</tr>';
+                }
+            $rv = $rv.'</tbody></table></form></div>';
+        } else {
+            $rv = $rv.'<br>Nothing found!<br>';
+            }
         // end listings
-        $rv = $rv.'</tbody></table></div>';
         return $rv;
         }
-    
     public function getTrip(){
         // check edit
         $edit = 0;
@@ -690,16 +843,39 @@ class RideshareModelRideshare extends JModelItem {
         $rsp = new rsUser($user->id);
         $uvl = $rsp->getVehicles();
         
+        
         if(isset($_GET['trip'])){
             // check authorization to edit
             $edit = $_GET['trip'];
         } else {
             // NEW: check if user has vehicle
             if (count($uvl) == 0) {
-                return 'You need to have a vehicle before create a trip.';
+                return 'You need to have a vehicle before you create a trip.';
                 }
             }
+        
+        if(isset($_POST['sluv'])){
+            $rtr = new rsTrip($user->id, $edit);
+            $rtr->regno = $_POST['sluv'];
+            $rtr->owner = $user->id;
+            $rtr->capacity = $_POST['seatsel'.$_POST['sluv']];
+            $rtr->originID = $_POST['fromL'];
+            $rtr->destinationID = $_POST['toL'];
+            $rtr->early = $_POST['dateEarliest'];
+            $rtr->late = $_POST['dateLatest'];
+            $rtr->depart = $_POST['hoursel'].':'.$_POST['minutesel'].' '.$_POST['ampm'];
+            // insert & get ID
+            $lastid = $rtr->updateTrip();
+            // $edit=ID
+            //var_dump($rtr);
+            $rv = '<H1>Post successful</H1>';
+            $rv = $rv.'Last insert id: '.$lastid.'<br>';
+            $rv = $rv.'[Link to go back home] [<a href="'.htmlentities($_SERVER['PHP_SELF']).'?trip='.$lastid.'">Link to edit last post</a>]';
+            return $rv;
+            }
+        
         $rtr = new rsTrip($user->id, $edit);
+        //var_dump($rtr);
         // check delete
         
         // edit & create
@@ -711,15 +887,18 @@ class RideshareModelRideshare extends JModelItem {
             }
         $rv = $rv.' Trip</H1>';
         // begin form here:
+        $rv = $rv.'<form method="post" action="'.htmlentities($_SERVER['PHP_SELF']);
+        $rv = $rv.'" name=tripform">';
+        
         $rv = $rv.'<table style="text-align: left;" border="1" ><tbody>';
         $rv = $rv.'<tr><td>From<br></td><td>';
-        $rv = $rv.$this->getLocationDD('fromL');
+        $rv = $rv.$this->getLocationDD('fromL', $rtr->originID);
         $rv = $rv.'</td></tr><tr><td>To<br></td><td>';
-        $rv = $rv.$this->getLocationDD('toL');
+        $rv = $rv.$this->getLocationDD('toL', $rtr->destinationID);
         $rv = $rv.'</td></tr><tr><td>Depart no earlier than<br></td><td>';
-        $rv = $rv.JHTML::_( 'calendar',$startdate,'dateEarliest','dateE','%Y-%m-%d');
+        $rv = $rv.JHTML::_('calendar',$rtr->early,'dateEarliest','dateE','%Y-%m-%d');
         $rv = $rv.'</td></tr><tr><td>Arrive no later than<br></td><td>';
-        $rv = $rv.JHTML::_( 'calendar',$finishdate,'dateLatest','dateL','%Y-%m-%d');
+        $rv = $rv.JHTML::_( 'calendar',$rtr->late,'dateLatest','dateL','%Y-%m-%d');
         $rv = $rv.'</td></tr><tr><td>Select Vehicle<br></td><td>';
         
         // first car is selected if edit=0
@@ -774,23 +953,51 @@ class RideshareModelRideshare extends JModelItem {
         $rv = $rv.'</td></tr><tr><td>Desired time of day to depart<br>';
         $rv = $rv.'</td><td>';
         // time to depart
+        //var_dump($rtr->depart);
+        $depampm = explode(' ', $rtr->depart);
+        $dephm = explode(':', $depampm[0]);
         $rv = $rv.'<select name="hoursel">';
         for ($i = 1; $i < 13; $i++){
-            $rv = $rv.'<option value="'.$i.'">'.$i.'</option>';
+            $rv = $rv.'<option value="'.$i.'"';
+            if ($i == $dephm[0]) {
+                $rv = $rv.' selected="yes"';
+                }
+            $rv = $rv.'>'.$i.'</option>';
             }
         $rv = $rv.'</select> : ';
         $rv = $rv.'<select name="minutesel">';
         for ($i = 0; $i < 60; $i++){
-            $rv = $rv.'<option value="'.$i.'">'.$i.'</option>';
+            $rv = $rv.'<option value="'.$i.'"';
+            if ($i == $dephm[1]) {
+                $rv = $rv.' selected="yes"';
+                }
+            $rv = $rv.'>'.$i.'</option>';
             }
         $rv = $rv.'</select>   ';
-        $rv = $rv.'<input type="radio" name="ampm" value="am" />AM ';
-        $rv = $rv.'<input type="radio" name="ampm" value="pm" checked="checked"/>PM';
-        
-        $rv = $rv.'</td></tr><tr><td>delete-button-if-edit<br></td><td>';
-        $rv = $rv.'done_button';
+        $rv = $rv.'<input type="radio" name="ampm" value="AM" ';
+        if ($depampm[1] == 'AM') {
+            $rv = $rv.'checked="checked"';
+            }
+        $rv = $rv.'/>AM ';
+        $rv = $rv.'<input type="radio" name="ampm" value="PM" ';
+        if ($depampm[1] == 'PM') {
+            $rv = $rv.'checked="checked"';
+            }
+        $rv = $rv.'/>PM';
+        $rv = $rv.'</td></tr><tr><td>';
+        if ($edit > 0) {
+            $rv = $rv.'<div id="dellink">';
+            $rv = $rv.'<a  href="javascript:ChangeDisplayDiv(\'dellink\', \'delconfirm\');">Delete This Trip</a>';
+            $rv = $rv.'</div>';
+            $rv = $rv.'<div id="delconfirm" style="display: none;">';
+            $rv = $rv.'Are you sure? [Yes]</div>';
+            }
+        $rv = $rv.'<br></td><td>';
+        $rv = $rv.'<input type="submit" name="trdone" value="done">';
+        $rv = $rv.'<field name="view" type="hidden" default="rideshare" />';
+        $rv = $rv.'<field name="id" type="hidden" default="3" />';
         $rv = $rv.'<br></td></tr>';
-        $rv = $rv.'</tbody></table>';
+        $rv = $rv.'</tbody></table></form>';
         return $rv;
         }
     
